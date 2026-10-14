@@ -14,20 +14,17 @@ const WALK_SPEED_M_PER_MIN = 80; // ~4.8 km/h
 
 // Overpass endpoints (tried in order). CRITICAL for a static site: the mirror
 // MUST return `Access-Control-Allow-Origin` or the browser blocks the response
-// (that is the CORS error you hit on Netlify). overpass.osm.ch verified to send
-// `ACAO: *` + JSON; overpass-api.de does NOT send CORS and is intentionally
-// excluded. If every direct mirror fails we try a CORS proxy, then fall back
-// to the curated list.
+// (that is the CORS error you hit on Netlify). Only mirrors VERIFIED to send
+// `ACAO: *` from a browser belong here. overpass.osm.ch is the one that reliably
+// does (200 + ACAO:* + JSON). overpass-api.de does NOT send CORS and is
+// deliberately NOT used — not even via a public CORS proxy, because the proxies
+// (corsproxy.io etc.) are themselves rate-limited/down and a failed proxy still
+// logs `overpass-api.de` as the blocked resource in the console. The curated
+// list renders first and is the real data for the Glenmarie industrial park
+// (OSM has ~0 eateries mapped within 5 km), so a missing mirror costs nothing.
 const OVERPASS_ENDPOINTS = [
   "https://overpass.osm.ch/api/interpreter",
-  "https://overpass.private.coffee/api/interpreter",
-  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
 ];
-
-// Last-resort CORS proxy wrapper (adds ACAO to any upstream). Public proxies
-// are rate-limited, so this is only tried if every direct mirror fails.
-const CORS_PROXY = "https://corsproxy.io/?url=";
-const PROXIED_OVERPASS = "https://overpass-api.de/api/interpreter";
 
 // CURATED PRIMARY LIST. The Hicom-Glenmarie industrial area around The Glenz is
 // essentially UNMAPPED for food in OpenStreetMap (verified: 0 OSM eateries
@@ -177,19 +174,14 @@ async function fetchPlaces() {
     out center tags;`;
   const body = "data=" + encodeURIComponent(q);
 
-  // 1) Direct CORS-capable mirrors.
+  // 1) Direct CORS-capable mirror(s). No proxy fallback: a failed public proxy
+  //    just logs a scary cross-origin error for overpass-api.de and never helps.
   for (const url of OVERPASS_ENDPOINTS) {
     const places = await tryOverpass(url, body, false);
     if (places && places.length) return { places, source: "live" };
   }
-  // 2) Last resort: route overpass-api.de through a CORS proxy.
-  try {
-    const proxied = CORS_PROXY + encodeURIComponent(PROXIED_OVERPASS + "?" + body);
-    const places = await tryOverpass(proxied, null, true);
-    if (places && places.length) return { places, source: "live" };
-  } catch (_) { /* proxy busy → fall through */ }
 
-  // 3) Degrade gracefully to the grounded seed list.
+  // 2) Degrade gracefully to the grounded curated list (the real data here).
   return { places: curatedWithDist(), source: "fallback" };
 }
 
@@ -500,12 +492,14 @@ async function boot() {
 
 async function loadPlaces() {
   const { places, source } = await fetchPlaces();
-  // Merge curated local spots that OSM is missing, skipping any the live data already has.
-  const have = new Set(places.map((p) => p.n.toLowerCase()));
-  const extras = LOCAL_EXTRAS
-    .filter((e) => !have.has(e.n.toLowerCase()))
-    .map((e) => ({ ...e, dist: haversine(ORIGIN, { lat: e.lat, lon: e.lon }) }));
-  PLACES = places.concat(extras).sort((a, b) => a.dist - b.dist);
+  // The curated list is PRIMARY data for Glenmarie (OSM barely maps this area),
+  // so always merge it in — even when live OSM succeeds — deduped by name so a
+  // spot OSM already has isn't listed twice. Previously, a successful live fetch
+  // REPLACED the curated set, which hid the hand-added kopitiams (Thong Kee,
+  // Meng Kee, etc.) whenever a mirror answered.
+  const liveByName = new Set(places.map((p) => p.n.toLowerCase()));
+  const curated = curatedWithDist().filter((c) => !liveByName.has(c.n.toLowerCase()));
+  PLACES = places.concat(curated).sort((a, b) => a.dist - b.dist);
   showSource(source);
   buildGenreChips();
   computeChallenge();
