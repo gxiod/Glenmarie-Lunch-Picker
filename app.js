@@ -12,12 +12,14 @@ let ORIGIN = { ...GLENZ }; // mutable: geolocation can override it
 const SEARCH_RADIUS_M = 6000; // wide enough to include the SS15/SS16/NU Empire cluster (~5 km by road)
 const WALK_SPEED_M_PER_MIN = 80; // ~4.8 km/h
 
-// Overpass endpoints (tried in order; public mirrors are frequently busy — 429/504/406).
+// Overpass endpoints (tried in order). These send CORS headers so a browser
+// on a deployed origin (Netlify/Pages) can read the response. Public mirrors
+// are still frequently busy (429/504) — the app degrades to FALLBACK_PLACES.
 const OVERPASS_ENDPOINTS = [
   "https://overpass-api.de/api/interpreter",
-  "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter",
+  "https://overpass.osm.ch/api/interpreter",
   "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
-  "https://overpass.openstreetmap.ru/api/interpreter",
 ];
 
 // Research-grounded seed list near The Glenz, Glenmarie. Used ONLY when every
@@ -97,18 +99,22 @@ async function fetchPlaces() {
     out center tags;`;
   for (const url of OVERPASS_ENDPOINTS) {
     try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 12000); // don't hang on a slow mirror
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: "data=" + encodeURIComponent(q),
+        signal: ctrl.signal,
       });
+      clearTimeout(timer);
       if (!res.ok) continue; // 429/504/406 → try next mirror
       const ct = res.headers.get("content-type") || "";
       if (!ct.includes("json")) continue; // busy mirrors return an HTML error page
       const data = await res.json();
       const places = normalizePlaces(data.elements || []);
       if (places.length) return { places, source: "live" };
-    } catch (_) { /* network error → try next mirror */ }
+    } catch (_) { /* network/CORS/abort → try next mirror */ }
   }
   // Every mirror failed — degrade gracefully to the grounded seed list.
   return { places: FALLBACK_PLACES.slice().sort((a, b) => a.dist - b.dist), source: "fallback" };
@@ -381,9 +387,20 @@ async function boot() {
   resetDailyIfNeeded();
   renderGame();
   wireEvents();
-  $("#list").innerHTML = '<div class="loading">📍 Finding food near The Glenz…</div>';
-  loadWeather();
-  await loadPlaces();
+
+  // RENDER-FIRST: show the curated fallback immediately so genres, filters,
+  // search, spinner and the location button all work even if every network
+  // call fails (CORS, offline, busy Overpass). Live data upgrades this later.
+  PLACES = FALLBACK_PLACES.slice().sort((a, b) => a.dist - b.dist);
+  $("#count").dataset.src = "fallback";
+  buildGenreChips();
+  computeChallenge();
+  renderChal();
+  render();
+
+  // Now enrich with live data + weather — failures here never break the UI.
+  loadWeather().catch(() => {});
+  loadPlaces().catch((e) => console.warn("live places failed, keeping fallback:", e));
 }
 
 async function loadPlaces() {
