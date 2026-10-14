@@ -51,3 +51,4 @@ It's static — drop the folder on any static host:
 - `styles.css` — theming (light/dark), components
 - `app.js` — live data fetch, filtering, gamification, challenge logic
 # Glenmarie-Lunch-Picker
+# Glenmarie-Lunch-Picker
