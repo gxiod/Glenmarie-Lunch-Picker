@@ -1,0 +1,23 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Node (only if you add tooling later; the app itself needs none)
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Env / secrets (this app uses NONE — this is just a safety net)
+.env
+.env.*
+*.pem
+*.key
+
+# Build output (none today; reserved)
+dist/
+build/

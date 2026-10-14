@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>Glenmarie Lunch Picker 🍜</title>
+  <meta name="description" content="Can't decide what to eat near The Glenz, Glenmarie? Filter by walk/drive, cuisine, and weather — then spin to decide." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍜</text></svg>" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Header + gamification -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-title">🍜 Glenmarie Lunch Picker</div>
+        <div class="brand-sub">from <strong>The Glenz</strong>, Glenmarie · can't decide? spin it 👇</div>
+      </div>
+      <div class="stats">
+        <div class="stat"><span class="stat-k">Lvl</span><span id="lvl" class="stat-v">1</span></div>
+        <div class="stat"><span class="stat-k">XP</span><span id="xp" class="stat-v">0</span></div>
+        <div class="stat"><span class="stat-k">🔥 Streak</span><span id="streak" class="stat-v">0</span></div>
+      </div>
+    </header>
+
+    <!-- Daily challenge -->
+    <section id="chal" class="card challenge">
+      <div class="chal-head">
+        <div class="chal-left">
+          <span class="chal-emoji">🎯</span>
+          <div>
+            <div class="chal-label">Today's Surprise Challenge · <span id="chalDate"></span></div>
+            <div class="chal-title">Eat <span id="chalG" class="accent">— — —</span> today <span id="chalBadge"></span></div>
+          </div>
+        </div>
+        <div class="chal-actions">
+          <button id="chalApply" class="btn btn-pri">Accept 🎯 +50 XP</button>
+          <button id="chalShow" class="btn">Reveal</button>
+          <button id="chalReroll" class="btn" title="One reroll per day">Reroll ♻️</button>
+        </div>
+      </div>
+      <div id="chalMsg" class="chal-msg muted">Hidden until you reveal — no peeking, that's the surprise 😉</div>
+    </section>
+
+    <!-- Weather -->
+    <section id="wx" class="card weather">
+      <div class="wx-left">
+        <span id="wxIcon" class="wx-icon">⏳</span>
+        <div>
+          <div id="wxText">Fetching live weather for Glenmarie…</div>
+          <div id="wxMeta" class="muted small"></div>
+        </div>
+      </div>
+      <div class="wx-actions">
+        <button id="wxRefresh" class="btn" title="Re-fetch live weather">↻ Refresh</button>
+        <button id="wxBtn" class="btn" title="Manual override">Override: raining 🌧️</button>
+      </div>
+    </section>
+
+    <!-- Controls -->
+    <section class="card controls">
+      <div class="control-row" style="justify-content:space-between">
+        <span class="muted small">📍 From: <strong id="originLabel">The Glenz @ Glenmarie</strong></span>
+        <button id="useLoc" class="btn" title="Measure distances from your real GPS location">📍 Use my location</button>
+      </div>
+      <input id="q" class="input" placeholder="🔎 Search food, cuisine, or vibe… (e.g. laksa, mamak, cafe)" />
+      <div class="control-row">
+        <span class="muted small">Travel:</span>
+        <button class="chip on" data-mode="walk">🚶 Walk</button>
+        <button class="chip" data-mode="drive">🚗 Drive</button>
+        <span class="muted small gap">Walk limit: <strong id="wlab">800</strong>m</span>
+        <input id="wmax" class="range" type="range" min="300" max="1500" step="100" value="800" />
+      </div>
+      <div id="genres" class="control-row genres"></div>
+    </section>
+
+    <!-- Spinner -->
+    <section class="card spinner">
+      <div class="wheel-wrap">
+        <div class="wheel-pointer"></div>
+        <div id="wheel" class="wheel">🎲</div>
+      </div>
+      <button id="spin" class="btn btn-pri">🎰 Spin to decide</button>
+      <div id="pick" class="pick"></div>
+    </section>
+
+    <!-- Results -->
+    <div id="count" class="muted small count"></div>
+    <section id="list" class="card list"></section>
+
+    <footer class="foot muted small">
+      Live places via <a href="https://overpass-api.de/" target="_blank" rel="noopener noreferrer">OpenStreetMap Overpass</a> ·
+      weather via <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a> ·
+      distances are straight-line estimates, not navigation.
+    </footer>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
