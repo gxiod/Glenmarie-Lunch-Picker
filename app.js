@@ -12,43 +12,64 @@ let ORIGIN = { ...GLENZ }; // mutable: geolocation can override it
 const SEARCH_RADIUS_M = 6000; // wide enough to include the SS15/SS16/NU Empire cluster (~5 km by road)
 const WALK_SPEED_M_PER_MIN = 80; // ~4.8 km/h
 
-// Overpass endpoints (tried in order). These send CORS headers so a browser
-// on a deployed origin (Netlify/Pages) can read the response. Public mirrors
-// are still frequently busy (429/504) — the app degrades to FALLBACK_PLACES.
+// Overpass endpoints (tried in order). CRITICAL for a static site: the mirror
+// MUST return `Access-Control-Allow-Origin` or the browser blocks the response
+// (that is the CORS error you hit on Netlify). overpass.osm.ch verified to send
+// `ACAO: *` + JSON; overpass-api.de does NOT send CORS and is intentionally
+// excluded. If every direct mirror fails we try a CORS proxy, then fall back
+// to the curated list.
 const OVERPASS_ENDPOINTS = [
-  "https://overpass-api.de/api/interpreter",
-  "https://overpass.private.coffee/api/interpreter",
   "https://overpass.osm.ch/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter",
   "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
 ];
 
-// Research-grounded seed list near The Glenz, Glenmarie. Used ONLY when every
-// Overpass mirror is unreachable, so the app always renders something usable.
-// Distances are approximate straight-line metres from ORIGIN.
+// Last-resort CORS proxy wrapper (adds ACAO to any upstream). Public proxies
+// are rate-limited, so this is only tried if every direct mirror fails.
+const CORS_PROXY = "https://corsproxy.io/?url=";
+const PROXIED_OVERPASS = "https://overpass-api.de/api/interpreter";
+
+// CURATED PRIMARY LIST. The Hicom-Glenmarie industrial area around The Glenz is
+// essentially UNMAPPED for food in OpenStreetMap (verified: 0 OSM eateries
+// within 5 km), so this hand-built list — not live Overpass — is the real data
+// here. Each entry carries a coordinate so its distance is COMPUTED from the
+// current origin (haversine), honest for both walk and drive. Live OSM results
+// are merged ON TOP when the area eventually gets mapped. `est` flags an
+// approximate coordinate. Edit freely as you learn exact spots.
+const GLENMARIE = { lat: 3.0816, lon: 101.5626 };   // ~The Glenz / Hicom-Glenmarie
+const SS15 = { lat: 3.0730, lon: 101.5870 };         // SS15 Subang food cluster
+const NU_EMPIRE = { lat: 3.0812, lon: 101.5826 };    // NU Empire / Empire Gallery
+// Hicom-Glenmarie Industrial Park coffeeshop cluster — the Meng Kee / Thong Kee
+// row of shops on Jalan Pekedai U1/36 / Jalan Juruanalisis U1/35, same industrial
+// park as The Glenz (so a short drive / long walk, not SS15). Shared `est` anchor;
+// swap in each stall's exact coordinate when you have it.
+const HICOM_KOPITIAM = { lat: 3.0801, lon: 101.5612 };
+
 const FALLBACK_PLACES = [
-  { n: "TheFOODtree Restaurant", g: "Western", dist: 650, out: true, halal: true, tags: ["alfresco", "family"], note: "alfresco local & western" },
-  { n: "Mozer's @ Shah Alam", g: "Middle Eastern", dist: 1200, out: true, halal: true, tags: ["syrian", "shawarma"], note: "lamb shawarma, shish kebab" },
-  { n: "Al-Sultan Restaurant", g: "Middle Eastern", dist: 900, out: false, halal: true, tags: ["mandi", "grill"], note: "Yemeni mandi & charcoal grills" },
-  { n: "Hilton Glenmarie Dining", g: "Japanese", dist: 700, out: false, halal: false, tags: ["buffet", "premium"], note: "Japanese + garden terrace" },
-  { n: "Glenmarie Golf Clubhouse", g: "Western", dist: 1500, out: true, halal: true, tags: ["view", "sit-down"], note: "poolside / golf-view dining" },
-  { n: "Mamak / Nasi Kandar", g: "Malaysian", dist: 450, out: true, halal: true, tags: ["cheap", "roti", "fast"], note: "classic mamak, fast & cheap" },
-  { n: "Economy Rice (Nasi Campur)", g: "Malaysian", dist: 400, out: false, halal: true, tags: ["cheap", "rice", "fast"], note: "mixed rice, quick pick" },
-  { n: "Chinese Noodle House", g: "Chinese", dist: 1100, out: false, halal: false, tags: ["noodles", "wok"], note: "hor fun, wantan mee, zi char" },
-  { n: "Western Grill Cafe", g: "Western", dist: 600, out: false, halal: true, tags: ["burger", "cafe"], note: "chicken chop, burgers, pasta" },
-  { n: "Brunch & Coffee Spot", g: "Cafe", dist: 550, out: true, halal: true, tags: ["coffee", "brunch"], note: "light brunch & good coffee" },
-  { n: "Thai Street Food", g: "Thai", dist: 1300, out: false, halal: true, tags: ["spicy", "tomyam"], note: "tom yam, basil chicken rice" },
-  { n: "Korean BBQ / Bibimbap", g: "Korean", dist: 1600, out: false, halal: false, tags: ["bbq", "rice"], note: "bibimbap, grilled sets" },
+  // --- Hicom-Glenmarie kopitiam / coffeeshop cluster (user-confirmed local spots) ---
+  // Jalan Pekedai U1/36 / Jalan Juruanalisis U1/35 — the row near The Glenz.
+  { n: "Thong Kee Cafe (Glenmarie)", g: "Kopitiam", lat: HICOM_KOPITIAM.lat, lon: HICOM_KOPITIAM.lon, out: false, halal: false, tags: ["kopitiam", "dim-sum", "breakfast", "pulut-panggang"], note: "popular dim sum & kopi, breakfast spot", est: true },
+  { n: "Hakka Mee (beside Thong Kee)", g: "Kopitiam", lat: HICOM_KOPITIAM.lat, lon: HICOM_KOPITIAM.lon, out: false, halal: false, tags: ["kopitiam", "hakka-mee", "noodles"], note: "Hakka mee stall right beside Thong Kee", est: true },
+  { n: "Yat Pat Hoe (Fried Rice / Pan Mee)", g: "Kopitiam", lat: HICOM_KOPITIAM.lat, lon: HICOM_KOPITIAM.lon, out: false, halal: false, tags: ["kopitiam", "fried-rice", "pan-mee"], note: "fried rice & pan mee stall", est: true },
+  { n: "Meng Kee Chicken Rice", g: "Kopitiam", lat: HICOM_KOPITIAM.lat, lon: HICOM_KOPITIAM.lon, out: false, halal: false, tags: ["kopitiam", "chicken-rice", "char-siew"], note: "Hainanese chicken rice & char siew (Jln Pekedai U1/36)", est: true },
+  { n: "Harmee / Curry Mee", g: "Kopitiam", lat: HICOM_KOPITIAM.lat, lon: HICOM_KOPITIAM.lon, out: false, halal: false, tags: ["kopitiam", "har-mee", "curry-mee", "noodles"], note: "prawn mee (har mee) & curry mee stall", est: true },
+  { n: "Uncle Soon Fried Rice", g: "Kopitiam", lat: HICOM_KOPITIAM.lat, lon: HICOM_KOPITIAM.lon, out: false, halal: false, tags: ["kopitiam", "fried-rice", "wok"], note: "wok-fried rice stall", est: true },
+  // --- Near The Glenz — hotels & industrial-park spots (short drive / long walk) ---
+  { n: "Hilton Glenmarie Dining", g: "Western", lat: 3.0796, lon: 101.5668, out: false, halal: false, tags: ["hotel", "buffet"], note: "hotel restaurants, Japanese + terrace", est: true },
+  { n: "Holiday Inn Glenmarie — Café", g: "Western", lat: 3.0802, lon: 101.5651, out: false, halal: true, tags: ["hotel", "buffet"], note: "all-day dining & local buffet", est: true },
+  { n: "Glenmarie Golf Clubhouse", g: "Western", lat: 3.0870, lon: 101.5600, out: true, halal: true, tags: ["view", "sit-down"], note: "golf-view dining, several outlets", est: true },
+  { n: "Mamak / Nasi Kandar (Glenmarie)", g: "Malaysian", lat: 3.0828, lon: 101.5635, out: true, halal: true, tags: ["mamak", "roti", "cheap"], note: "classic mamak, fast & cheap", est: true },
+  // --- SS15 / SS16 / NU Empire cluster — a drive away (~5 km by road) ---
+  { n: "Madam Kwan's @ NU Empire", g: "Malaysian", lat: NU_EMPIRE.lat, lon: NU_EMPIRE.lon, out: false, halal: true, tags: ["nasi-lemak", "mall"], note: "Malaysian classics in Empire Gallery", est: true },
+  { n: "Mozer's @ Shah Alam", g: "Middle Eastern", lat: 3.0760, lon: 101.5700, out: true, halal: true, tags: ["syrian", "shawarma"], note: "lamb shawarma, shish kebab", est: true },
+  { n: "Al-Sultan Restaurant", g: "Middle Eastern", lat: 3.0775, lon: 101.5720, out: false, halal: true, tags: ["mandi", "grill"], note: "Yemeni mandi & charcoal grills", est: true },
+  { n: "SS15 Thai Street Food", g: "Thai", lat: SS15.lat, lon: SS15.lon, out: false, halal: true, tags: ["spicy", "tomyam"], note: "tom yam, basil chicken rice", est: true },
+  { n: "SS15 Korean BBQ", g: "Korean", lat: SS15.lat, lon: SS15.lon, out: false, halal: false, tags: ["bbq", "rice"], note: "bibimbap, grilled sets", est: true },
 ];
 
-// Popular local spots NOT in OpenStreetMap for this area (OSM is community-
-// mapped and misses many kopitiams). Merged into live results. They carry a
-// coordinate (anchored to the verified NU Empire / SS16 cluster, 3.0812,
-// 101.5826) so their distance is COMPUTED from the real origin — not a
-// hardcoded guess. `est: true` just flags that the coordinate is approximate.
-const LOCAL_EXTRAS = [
-  { n: "Mengkee Kopitiam", g: "Kopitiam", lat: 3.0812, lon: 101.5826, out: false, halal: false, tags: ["kopitiam", "wantan-mee", "local"], note: "coffeeshop · noodles & kopi", est: true },
-  { n: "Thong Kee Kopitiam", g: "Kopitiam", lat: 3.0812, lon: 101.5826, out: false, halal: false, tags: ["kopitiam", "hainan", "toast"], note: "Hainanese coffee, toast, local fare", est: true },
-];
+// Kept for compatibility with the merge step; the SS15 kopitiams now live in
+// FALLBACK_PLACES, so no separate extras are needed.
+const LOCAL_EXTRAS = [];
 
 // ---------- utilities ----------
 const $ = (s) => document.querySelector(s);
@@ -59,6 +80,63 @@ const haversine = (a, b) => {
   return Math.round(R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s)));
 };
 const walkMins = (m) => Math.max(1, Math.round(m / WALK_SPEED_M_PER_MIN));
+
+// ---------- routing (real road distance + drive time) ----------
+// OSRM public demo server: keyless, sends CORS (Access-Control-Allow-Origin: *).
+// Returns { km, mins } for the driving route ORIGIN -> dest, or null on failure.
+// Results are cached per "lat,lon@origin" so we never re-request the same leg,
+// and requests are throttled so a full list doesn't hammer the demo server.
+const OSRM_BASE = "https://router.project-osrm.org/route/v1/driving/";
+const routeCache = new Map();
+const routeKey = (dest) => `${dest.lat.toFixed(5)},${dest.lon.toFixed(5)}@${ORIGIN.lat.toFixed(5)},${ORIGIN.lon.toFixed(5)}`;
+
+async function fetchRoute(dest) {
+  const key = routeKey(dest);
+  if (routeCache.has(key)) return routeCache.get(key);
+  try {
+    const url = `${OSRM_BASE}${ORIGIN.lon},${ORIGIN.lat};${dest.lon},${dest.lat}?overview=false`;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    const res = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error("osrm " + res.status);
+    const j = await res.json();
+    const r = j.routes && j.routes[0];
+    if (!r) throw new Error("no route");
+    const out = { km: r.distance / 1000, mins: Math.round(r.duration / 60) };
+    routeCache.set(key, out);
+    return out;
+  } catch (_) {
+    routeCache.set(key, null); // negative-cache so we don't retry a dead leg this session
+    return null;
+  }
+}
+
+// Progressively enrich the currently-rendered rows with real road time.
+// Called after render(); fills in each row's "drive" figure as OSRM replies,
+// gently throttled, and skips anything already resolved.
+let routingRun = 0;
+async function enrichRoutes() {
+  const myRun = ++routingRun; // cancel stale runs when the list re-renders
+  const rows = Array.from(document.querySelectorAll("#list .row[data-lat]"));
+  for (const row of rows) {
+    if (myRun !== routingRun) return;             // a newer render superseded us
+    const el = row.querySelector(".road");
+    if (!el || el.dataset.done) continue;
+    const dest = { lat: +row.dataset.lat, lon: +row.dataset.lon };
+    const r = await fetchRoute(dest);
+    if (myRun !== routingRun) return;
+    el.dataset.done = "1";
+    if (r) el.innerHTML = `🛣️ ${r.km.toFixed(1)} km · ${r.mins} min drive`;
+    else el.innerHTML = "";                        // routing unavailable → leave estimate only
+    await new Promise((f) => setTimeout(f, 120));  // be kind to the demo server
+  }
+}
+// Stamp curated places with distance computed from the CURRENT origin, so the
+// list stays correct after "Use my location" changes ORIGIN.
+const curatedWithDist = () =>
+  FALLBACK_PLACES.map((p) => ({ ...p, dist: haversine(ORIGIN, { lat: p.lat, lon: p.lon }) }))
+    .sort((a, b) => a.dist - b.dist);
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const yesterdayStr = () => new Date(Date.now() - 864e5).toISOString().slice(0, 10);
 
@@ -97,27 +175,42 @@ async function fetchPlaces() {
       way["amenity"~"restaurant|fast_food|cafe|food_court"](around:${SEARCH_RADIUS_M},${ORIGIN.lat},${ORIGIN.lon});
     );
     out center tags;`;
+  const body = "data=" + encodeURIComponent(q);
+
+  // 1) Direct CORS-capable mirrors.
   for (const url of OVERPASS_ENDPOINTS) {
-    try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 12000); // don't hang on a slow mirror
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: "data=" + encodeURIComponent(q),
-        signal: ctrl.signal,
-      });
-      clearTimeout(timer);
-      if (!res.ok) continue; // 429/504/406 → try next mirror
-      const ct = res.headers.get("content-type") || "";
-      if (!ct.includes("json")) continue; // busy mirrors return an HTML error page
-      const data = await res.json();
-      const places = normalizePlaces(data.elements || []);
-      if (places.length) return { places, source: "live" };
-    } catch (_) { /* network/CORS/abort → try next mirror */ }
+    const places = await tryOverpass(url, body, false);
+    if (places && places.length) return { places, source: "live" };
   }
-  // Every mirror failed — degrade gracefully to the grounded seed list.
-  return { places: FALLBACK_PLACES.slice().sort((a, b) => a.dist - b.dist), source: "fallback" };
+  // 2) Last resort: route overpass-api.de through a CORS proxy.
+  try {
+    const proxied = CORS_PROXY + encodeURIComponent(PROXIED_OVERPASS + "?" + body);
+    const places = await tryOverpass(proxied, null, true);
+    if (places && places.length) return { places, source: "live" };
+  } catch (_) { /* proxy busy → fall through */ }
+
+  // 3) Degrade gracefully to the grounded seed list.
+  return { places: curatedWithDist(), source: "fallback" };
+}
+
+// One Overpass attempt. Never throws — returns an array or null.
+async function tryOverpass(url, body, isProxyGet) {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 12000); // don't hang on a slow mirror
+    const res = await fetch(url, isProxyGet
+      ? { method: "GET", signal: ctrl.signal }
+      : { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body, signal: ctrl.signal });
+    clearTimeout(timer);
+    if (!res.ok) return null;                       // 429/504/406 → next
+    const ct = res.headers.get("content-type") || "";
+    const text = await res.text();                  // proxies sometimes mislabel content-type
+    if (!/json/.test(ct) && !text.trim().startsWith("{")) return null; // HTML error page
+    const data = JSON.parse(text);
+    return normalizePlaces(data.elements || []);
+  } catch (_) {
+    return null;                                    // network/CORS/abort → next
+  }
 }
 
 function normalizePlaces(elements) {
@@ -269,7 +362,7 @@ function render() {
   const v = visible();
   const extra = (isRaining() ? " · 🌧️ outdoor hidden" : "") + (S.chalAccepted && genre === challengeG ? " · 🎯 challenge mode" : "");
   const src = $("#count").dataset.src === "fallback"
-    ? ' · <span style="color:var(--warn)">⚠️ offline sample (Overpass busy) <button id="retry" class="btn" style="padding:2px 8px;font-size:11px">retry live</button></span>'
+    ? ' · <span style="color:var(--muted)">📋 curated local guide (this area is sparsely mapped in OSM) <button id="retry" class="btn" style="padding:2px 8px;font-size:11px">check live</button></span>'
     : "";
   $("#count").innerHTML = `${v.length} spot${v.length !== 1 ? "s" : ""} match${extra}${src}`;
   const retry = $("#retry");
@@ -278,21 +371,23 @@ function render() {
   if (!v.length) { list.innerHTML = '<div class="empty">No matches. Loosen filters, raise the walk limit, or switch to 🚗 Drive.</div>'; return; }
   list.innerHTML = v.map((p) => {
     const approx = p.est ? "~" : "";
-    const reach = p.dist <= wmax ? `🚶 ${approx}${walkMins(p.dist)} min (${approx}${p.dist}m)` : `🚗 drive (${approx}${p.dist}m)`;
+    const reach = p.dist <= wmax ? `🚶 ${approx}${walkMins(p.dist)} min (${approx}${p.dist}m)` : `🚗 drive (${approx}${p.dist}m straight-line)`;
     const star = p.g === challengeG ? ' <span title="today\'s challenge cuisine">🎯</span>' : "";
     const halal = p.halal ? ' <span class="badge-halal">● halal</span>' : "";
-    const estTag = p.est ? ' <span class="badge-out" title="Not in OpenStreetMap — hand-added, distance is an estimate">✎ added</span>' : "";
+    const estTag = p.est ? ' <span class="badge-out" title="Not in OpenStreetMap — hand-added, straight-line distance is an estimate">✎ added</span>' : "";
     const out = p.out ? ' · <span class="badge-out">⛅ outdoor</span>' : "";
     const tags = p.tags.length ? p.tags.map((t) => "#" + t).join(" ") : "";
-    return `<div class="row">
+    const coord = Number.isFinite(p.lat) && Number.isFinite(p.lon) ? ` data-lat="${p.lat}" data-lon="${p.lon}"` : "";
+    return `<div class="row"${coord}>
       <div>
         <div class="row-name">${esc(p.n)}${star}${halal}${estTag}</div>
         <div class="row-sub">${esc(p.g)} · ${esc(p.note)}</div>
         <div class="row-tags">${esc(tags)}${out}</div>
       </div>
-      <div class="row-reach">${reach}</div>
+      <div class="row-reach">${reach}<div class="road" style="font-size:11px;color:var(--muted);margin-top:2px">${coord ? "🛣️ …" : ""}</div></div>
     </div>`;
   }).join("");
+  enrichRoutes();
 }
 function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
@@ -391,7 +486,7 @@ async function boot() {
   // RENDER-FIRST: show the curated fallback immediately so genres, filters,
   // search, spinner and the location button all work even if every network
   // call fails (CORS, offline, busy Overpass). Live data upgrades this later.
-  PLACES = FALLBACK_PLACES.slice().sort((a, b) => a.dist - b.dist);
+  PLACES = curatedWithDist();
   $("#count").dataset.src = "fallback";
   buildGenreChips();
   computeChallenge();

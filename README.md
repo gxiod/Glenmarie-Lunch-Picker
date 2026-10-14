@@ -23,6 +23,10 @@ Pure static SPA — **no backend, no build step, and no API keys.** Just open
   nearby, including a dedicated **Kopitiam** genre.
 - **Live weather** — current conditions from Open-Meteo. When it's **raining**,
   outdoor-seating spots are auto-hidden with a warning. Manual override + refresh.
+- **Real road distance & drive time** — each listed spot is routed from The Glenz
+  via the OSRM public routing API (keyless, CORS-enabled), shown as `🛣️ X km · Y min
+  drive` beneath the straight-line estimate. Loaded lazily and cached per leg so the
+  list isn't blocked; if routing is unavailable the straight-line estimate stands alone.
 - **Gamification** — XP + levels, a daily lunch streak, the **🎯 Surprise-Me
   daily challenge** (date-seeded, +50 XP bonus, challenge streak, one reroll/day),
   and a "🎰 Spin to decide" roulette.
@@ -93,11 +97,11 @@ directory = `.`:
 
 - The Glenz coordinate is exact (user-confirmed). Edit `GLENZ` in `app.js` to
   re-center.
-- Distances are **straight-line (haversine) estimates** for filtering, not
-  turn-by-turn navigation. A nearby spot can be a longer drive if the road
-  loops — e.g. Glenz → NU Empire is ~2.2 km straight-line but ~5.2 km by road.
-  For real routes you'd add a routing API (OSRM / Google Directions),
-  intentionally left out to keep this key-free.
+- Distances shown as `(…m straight-line)` are **haversine estimates** used for the
+  walk/drive filter. The `🛣️` line below each is the **real road route** from OSRM
+  (Google-comparable) — e.g. Glenz → NU Empire is ~2.2 km straight-line but ~5.2 km
+  by road, and Glenz → 1 Utama is ~13.6 km / ~17 min. OSRM's free demo server is
+  rate-limited, so routes fill in progressively and silently skip if it's busy.
 - Place data quality depends on OpenStreetMap coverage. A missing
   `diet:halal` / `outdoor_seating` tag just means no badge — not an assertion
   of absence. Spots OSM is missing are added by hand in `LOCAL_EXTRAS` and
