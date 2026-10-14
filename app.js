@@ -9,8 +9,18 @@
 const GLENZ = { lat: 3.081571076828667, lon: 101.5625779089501, name: "The Glenz @ Glenmarie" };
 let ORIGIN = { ...GLENZ }; // mutable: geolocation can override it
 
-const SEARCH_RADIUS_M = 6000; // wide enough to include the SS15/SS16/NU Empire cluster (~5 km by road)
+// Overpass search radius depends on travel mode: a tight walk scan, or a wide
+// drive scan that reaches 1 Utama / Sunway / Kota Kemuning (~15 km by road).
+const WALK_RADIUS_M = 2000;   // walking is realistically within ~2 km
+const DRIVE_RADIUS_M = 16000; // drive reaches the far malls & towns
+let SEARCH_RADIUS_M = WALK_RADIUS_M; // mutated when the travel mode changes
 const WALK_SPEED_M_PER_MIN = 80; // ~4.8 km/h
+
+// Slider ranges per mode. Walk: 300–1500 m. Drive: 1–15 km (shown in km).
+const LIMIT_CFG = {
+  walk:  { min: 300, max: 1500, step: 100, def: 800,   unit: "m",  label: "Walk limit",  toM: (v) => v },
+  drive: { min: 1,   max: 15,   step: 1,   def: 15,    unit: "km", label: "Drive limit", toM: (v) => v * 1000 },
+};
 
 // Overpass endpoints (tried in order). CRITICAL for a static site: the mirror
 // MUST return `Access-Control-Allow-Origin` or the browser blocks the response
@@ -36,6 +46,23 @@ const OVERPASS_ENDPOINTS = [
 const GLENMARIE = { lat: 3.0816, lon: 101.5626 };   // ~The Glenz / Hicom-Glenmarie
 const SS15 = { lat: 3.0730, lon: 101.5870 };         // SS15 Subang food cluster
 const NU_EMPIRE = { lat: 3.0812, lon: 101.5826 };    // NU Empire / Empire Gallery
+const SUBANG_PARADE = { lat: 3.0812, lon: 101.5867 };// Subang Parade mall
+const SUNWAY = { lat: 3.0726, lon: 101.6072 };       // Sunway Pyramid
+const ONE_UTAMA = { lat: 3.1500, lon: 101.6160 };    // 1 Utama Shopping Centre
+const KOTA_KEMUNING = { lat: 3.0215, lon: 101.5330 };// Kota Kemuning town
+
+// Landmark anchors for the distance GAUGE (straight-line km from The Glenz).
+// Used to pin recognisable destinations along the drive-distance scale so the
+// slider reads in real terms. Verified road distances in the tooltip come from
+// OSRM live; the km here is the straight-line used by the slider filter.
+const LANDMARKS = [
+  { name: "NU Empire", ...NU_EMPIRE },
+  { name: "Subang Parade", ...SUBANG_PARADE },
+  { name: "SS15", ...SS15 },
+  { name: "Sunway Pyramid", ...SUNWAY },
+  { name: "Kota Kemuning", ...KOTA_KEMUNING },
+  { name: "1 Utama", ...ONE_UTAMA },
+];
 // Hicom-Glenmarie Industrial Park coffeeshop cluster — the Meng Kee / Thong Kee
 // row of shops on Jalan Pekedai U1/36 / Jalan Juruanalisis U1/35, same industrial
 // park as The Glenz (so a short drive / long walk, not SS15). Shared `est` anchor;
@@ -62,6 +89,11 @@ const FALLBACK_PLACES = [
   { n: "Al-Sultan Restaurant", g: "Middle Eastern", lat: 3.0775, lon: 101.5720, out: false, halal: true, tags: ["mandi", "grill"], note: "Yemeni mandi & charcoal grills", est: true },
   { n: "SS15 Thai Street Food", g: "Thai", lat: SS15.lat, lon: SS15.lon, out: false, halal: true, tags: ["spicy", "tomyam"], note: "tom yam, basil chicken rice", est: true },
   { n: "SS15 Korean BBQ", g: "Korean", lat: SS15.lat, lon: SS15.lon, out: false, halal: false, tags: ["bbq", "rice"], note: "bibimbap, grilled sets", est: true },
+  // --- Farther drive-only destinations (malls & town food, ~5–14 km by road) ---
+  { n: "Subang Parade — food court", g: "Malaysian", lat: SUBANG_PARADE.lat, lon: SUBANG_PARADE.lon, out: false, halal: true, tags: ["mall", "food-court", "variety"], note: "mall food court, lots of choice", est: true },
+  { n: "Sunway Pyramid — dining", g: "Western", lat: SUNWAY.lat, lon: SUNWAY.lon, out: false, halal: true, tags: ["mall", "variety", "chains"], note: "huge mall, every cuisine & chain", est: true },
+  { n: "1 Utama — food cluster", g: "Western", lat: ONE_UTAMA.lat, lon: ONE_UTAMA.lon, out: false, halal: true, tags: ["mall", "variety", "chains"], note: "massive mall food cluster, all cuisines", est: true },
+  { n: "Kota Kemuning Chicken Rice", g: "Kopitiam", lat: KOTA_KEMUNING.lat, lon: KOTA_KEMUNING.lon, out: false, halal: false, tags: ["chicken-rice", "kopitiam"], note: "well-known Kota Kemuning chicken rice", est: true },
 ];
 
 // Kept for compatibility with the merge step; the SS15 kopitiams now live in
@@ -270,7 +302,8 @@ const save = () => localStorage.setItem(STORE, JSON.stringify(S));
 // runtime
 let PLACES = [];
 let WX = null;
-let mode = "walk", wmax = 800, genre = "All", rainOverride = null;
+let mode = "walk", wmax = 800, genre = "Kopitiam", rainOverride = null;
+// wmax is always stored in METRES; the slider converts km→m in drive mode.
 let GENRES = [];
 let challengeG = "Other";
 
@@ -335,7 +368,8 @@ function logPick(p) {
 function visible() {
   const q = $("#q").value.trim().toLowerCase();
   return PLACES.filter((p) => {
-    if (mode === "walk" && p.dist > wmax) return false;
+    // wmax is in metres in BOTH modes; walk caps the near range, drive caps the far range.
+    if (p.dist > wmax) return false;
     if (genre !== "All" && p.g !== genre) return false;
     if (isRaining() && p.out) return false;
     if (q) {
@@ -383,13 +417,79 @@ function render() {
 }
 function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
+// ---------- distance gauge (landmark pins under the slider) ----------
+// Positions recognisable destinations along the slider's current min..max so the
+// limit reads in real terms. Pins within the current limit are highlighted.
+// Tooltip shows straight-line km now, then fills in the live OSRM road figure.
+function buildGauge() {
+  const track = $("#gaugeTrack");
+  if (!track) return;
+  const cfg = LIMIT_CFG[mode];
+  const minM = cfg.toM(cfg.min), maxM = cfg.toM(cfg.max);
+  const span = maxM - minM || 1;
+  const pins = LANDMARKS
+    .map((L) => ({ ...L, d: haversine(ORIGIN, { lat: L.lat, lon: L.lon }) }))
+    .filter((L) => L.d <= maxM + 500) // only pins that fit the current scale
+    .sort((a, b) => a.d - b.d);
+  track.innerHTML = pins.map((L) => {
+    const pct = Math.max(0, Math.min(100, ((L.d - minM) / span) * 100));
+    const near = L.d <= wmax ? " near" : "";
+    const km = (L.d / 1000).toFixed(1);
+    return `<div class="gauge-pin${near}" style="left:${pct}%" data-lat="${L.lat}" data-lon="${L.lon}">
+      <div class="tick"></div><div class="lbl">${esc(L.name)}</div>
+      <div class="tip">${esc(L.name)} · ${km} km straight-line<span class="tip-road"> · 🛣️ …</span></div>
+    </div>`;
+  }).join("");
+  // Lazily fill each tooltip with the real road distance/time.
+  pins.forEach((L, i) => {
+    const el = track.children[i];
+    if (!el) return;
+    fetchRoute({ lat: L.lat, lon: L.lon }).then((r) => {
+      const road = el.querySelector(".tip-road");
+      if (road) road.innerHTML = r ? ` · 🛣️ ${r.km.toFixed(1)} km · ${r.mins} min drive` : "";
+    });
+  });
+}
+
 // ---------- events ----------
+// Apply a travel mode: reconfigure the slider range/unit, set the Overpass
+// search radius, and (for drive) re-scan for farther places. `rescan` is false
+// on the very first setup so boot doesn't double-fetch.
+function applyMode(m, rescan = true) {
+  mode = m;
+  const cfg = LIMIT_CFG[m];
+  const s = $("#wmax");
+  s.min = cfg.min; s.max = cfg.max; s.step = cfg.step; s.value = cfg.def;
+  wmax = cfg.toM(cfg.def);
+  $("#limLabel").textContent = cfg.label;
+  $("#limUnit").textContent = cfg.unit;
+  $("#wlab").textContent = cfg.def;
+  SEARCH_RADIUS_M = (m === "drive") ? DRIVE_RADIUS_M : WALK_RADIUS_M;
+  buildGauge();
+  if (rescan) {
+    // Re-scan live OSM at the new radius (drive reaches the far clusters).
+    $("#list").innerHTML = `<div class="loading">${m === "drive" ? "🚗 Scanning farther spots (SS15, malls, Kota Kemuning)…" : "🚶 Finding walkable spots…"}</div>`;
+    loadPlaces().catch(() => render());
+  } else {
+    render();
+  }
+}
+
 function wireEvents() {
   $("#q").addEventListener("input", render);
-  $("#wmax").addEventListener("input", (e) => { wmax = +e.target.value; $("#wlab").textContent = wmax; render(); });
+  $("#wmax").addEventListener("input", (e) => {
+    const cfg = LIMIT_CFG[mode];
+    const raw = +e.target.value;
+    wmax = cfg.toM(raw);
+    $("#wlab").textContent = raw;
+    buildGauge();
+    render();
+  });
   document.querySelectorAll("[data-mode]").forEach((el) => el.addEventListener("click", () => {
+    if (el.dataset.mode === mode) return;
     document.querySelectorAll("[data-mode]").forEach((x) => x.classList.remove("on"));
-    el.classList.add("on"); mode = el.dataset.mode; $("#wmax").disabled = mode === "drive"; render();
+    el.classList.add("on");
+    applyMode(el.dataset.mode, true);
   }));
   $("#genres").addEventListener("click", (e) => { const el = e.target.closest("[data-g]"); if (el) setGenre(el.dataset.g); });
 
@@ -465,9 +565,11 @@ async function loadWeather() {
 // ---------- boot ----------
 function buildGenreChips() {
   GENRES = [...new Set(PLACES.map((p) => p.g))].filter(Boolean).sort();
+  // Default to Kopitiam when present (user preference); else fall back to "All".
+  if (genre !== "All" && !GENRES.includes(genre)) genre = GENRES.includes("Kopitiam") ? "Kopitiam" : "All";
   $("#genres").innerHTML =
     '<span class="muted small">Genre:</span>' +
-    ["All", ...GENRES].map((g) => `<button class="chip${g === "All" ? " on" : ""}" data-g="${esc(g)}">${esc(g)}</button>`).join("");
+    ["All", ...GENRES].map((g) => `<button class="chip${g === genre ? " on" : ""}" data-g="${esc(g)}">${esc(g)}</button>`).join("");
 }
 
 async function boot() {
@@ -483,7 +585,7 @@ async function boot() {
   buildGenreChips();
   computeChallenge();
   renderChal();
-  render();
+  applyMode("walk", false); // sets slider range/unit + builds the gauge, then renders
 
   // Now enrich with live data + weather — failures here never break the UI.
   loadWeather().catch(() => {});

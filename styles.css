@@ -84,7 +84,30 @@ a { color: var(--accent); }
 
 /* Inputs */
 .input { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 14px; }
-.range { accent-color: var(--accent); flex: 1; min-width: 120px; }
+.range { accent-color: var(--accent); flex: 1; min-width: 120px; width: 100%; }
+
+/* Distance gauge: landmark pins under the slider */
+.gauge-wrap { width: 100%; }
+.gauge-track { position: relative; height: 34px; margin: 2px 2px 0; }
+.gauge-pin {
+  position: absolute; top: 0; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; cursor: default;
+}
+.gauge-pin .tick { width: 1px; height: 7px; background: var(--border); }
+.gauge-pin.near .tick { background: var(--accent); }
+.gauge-pin .lbl {
+  font-size: 9px; line-height: 1.1; color: var(--muted); white-space: nowrap;
+  margin-top: 2px; transform: rotate(-32deg); transform-origin: top center;
+}
+.gauge-pin.near .lbl { color: var(--accent); font-weight: 600; }
+.gauge-pin .tip {
+  position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+  margin-bottom: 4px; background: var(--card); color: var(--card-fg);
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px;
+  font-size: 11px; white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,.25);
+  opacity: 0; pointer-events: none; transition: opacity .12s; z-index: 5;
+}
+.gauge-pin:hover .tip { opacity: 1; }
 
 /* Challenge */
 .challenge { padding: 14px; border-color: var(--accent); animation: pop .3s ease; }

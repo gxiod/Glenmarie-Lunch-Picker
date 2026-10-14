@@ -15,10 +15,20 @@ Pure static SPA — **no backend, no build step, and no API keys.** Just open
   a curated local sample so the app always renders, with a **retry live** button.
 - **📍 Use my location** — measure distances from your real GPS position instead
   of the fixed Glenz origin (browser Geolocation; nothing is sent anywhere).
-- **Walk / Drive filter** — default **800 m** walk limit (planning-standard
-  outer bound of a ~10-min walk; 400 m is the "highly convenient" 5-min mark).
-  Slider adjusts 300–1500 m.
+- **Walk / Drive filter with a dual-mode distance gauge** —
+  - **Walk** mode: limit slider reads in metres (300–1500 m, default 800 m — the
+    planning-standard outer bound of a ~10-min walk; 400 m is the 5-min mark).
+  - **Drive** mode: switching re-scans OpenStreetMap at a wider radius (up to
+    ~16 km) to pull in the farther clusters — **SS15, NU Empire, Subang Parade,
+    Sunway Pyramid, 1 Utama, Kota Kemuning** — and the slider becomes a **drive
+    limit** in kilometres (1–15 km).
+  - A **landmark gauge** under the slider pins recognisable destinations along
+    the scale; hover a pin for its straight-line km and the **live road
+    distance/time** (OSRM). Pins within the current limit are highlighted.
 - **Dynamic search** across name, cuisine, tags, and description.
+- **Default genre: Kopitiam** — the view opens on the Glenmarie kopitiam cluster
+  (Thong Kee, Meng Kee, Hakka Mee, Yat Pat Hoe, Harmee, Uncle Soon). Switch via
+  the genre chips.
 - **Cuisine genre filter** — chips built dynamically from what's actually
   nearby, including a dedicated **Kopitiam** genre.
 - **Live weather** — current conditions from Open-Meteo. When it's **raining**,

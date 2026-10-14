@@ -69,8 +69,11 @@
         <span class="muted small">Travel:</span>
         <button class="chip on" data-mode="walk">🚶 Walk</button>
         <button class="chip" data-mode="drive">🚗 Drive</button>
-        <span class="muted small gap">Walk limit: <strong id="wlab">800</strong>m</span>
+        <span class="muted small gap"><span id="limLabel">Walk limit</span>: <strong id="wlab">800</strong><span id="limUnit">m</span></span>
+      </div>
+      <div class="gauge-wrap">
         <input id="wmax" class="range" type="range" min="300" max="1500" step="100" value="800" />
+        <div id="gaugeTrack" class="gauge-track"></div>
       </div>
       <div id="genres" class="control-row genres"></div>
     </section>
