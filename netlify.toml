@@ -1,0 +1,15 @@
+# Netlify configuration.
+# Static SPA at the repo root; serverless functions under netlify/functions.
+
+[build]
+  publish = "."
+  functions = "netlify/functions"
+  # No build step — this is a hand-written static site.
+  command = ""
+
+# Friendly path: /api/foursquare → the function. The app calls /api/foursquare,
+# which works both on `netlify dev` locally and on the deployed site.
+[[redirects]]
+  from = "/api/foursquare"
+  to = "/.netlify/functions/foursquare"
+  status = 200

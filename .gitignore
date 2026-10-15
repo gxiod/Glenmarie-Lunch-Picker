@@ -12,11 +12,16 @@ node_modules/
 npm-debug.log*
 yarn-error.log*
 
-# Env / secrets (this app uses NONE — this is just a safety net)
+# Env / secrets. The Netlify function reads FOURSQUARE_API_KEY from the
+# environment (Netlify env vars in prod, a local .env for `netlify dev`).
+# Ignore real .env files, but DO commit the documented template.
 .env
 .env.*
+!.env.example
 *.pem
 *.key
+# Netlify local dev artifacts
+.netlify/
 
 # Build output (none today; reserved)
 dist/

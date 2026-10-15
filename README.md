@@ -4,8 +4,14 @@ A real, deployable web app to solve *"what do we eat for lunch?"* near
 **The Glenz @ Glenmarie** (6, Jalan Juruanalisis U1/35, Hicom-Glenmarie
 Industrial Park, 40150 Shah Alam, Selangor).
 
-Pure static SPA — **no backend, no build step, and no API keys.** Just open
-`index.html`.
+Pure static SPA — **works with no backend and no API keys** (OpenStreetMap +
+Open-Meteo are keyless). Just open `index.html`.
+
+**Optional upgrade:** add a free [Foursquare](https://location.foursquare.com/developer/)
+key to get real live venue search (mall tenants etc. that OSM misses), served
+through a tiny Netlify Function so the key stays server-side. See
+[Optional: live Foursquare search](#optional-live-foursquare-search) below — the
+app runs fine without it.
 
 ## Features
 
@@ -94,6 +100,34 @@ git push origin main
 > macOS keeps your key unlocked in the Keychain, so even a passphrase-protected
 > key won't prompt after the first use.
 
+## Optional: live Foursquare search
+
+OpenStreetMap barely maps Malaysian mall interiors and this industrial park, so
+for genuine live venue coverage the app can call **Foursquare Places** — but a
+static site can't call it directly (CORS is blocked and the key must stay
+secret). The fix is a small **Netlify Function** (`netlify/functions/foursquare.js`)
+that holds the key server-side and returns browser-safe JSON. The app merges
+Foursquare results on top of OSM, with the curated kopitiams always kept.
+
+**It's entirely optional** — with no key configured, the function soft-fails and
+the app keeps running on OSM + the curated list exactly as before.
+
+### Enable it (free, no credit card)
+
+1. Create a key at <https://location.foursquare.com/developer/> → new project →
+   copy the **Service API Key**.
+2. **On Netlify:** Site settings → Environment variables → add
+   `FOURSQUARE_API_KEY = <your key>`, then redeploy. Netlify auto-detects
+   `netlify/functions/` and `netlify.toml`.
+3. **Locally:** `cp .env.example .env`, paste your key, then run `netlify dev`
+   (`npm i -g netlify-cli`) — it serves the static files *and* the function at
+   `/api/foursquare` together. (Plain `python3 -m http.server` can't run the
+   function, so you'll just see OSM + curated locally — that's expected.)
+
+The key is **never** committed: `.env` is git-ignored, and in production it lives
+only in Netlify's env vars. The banner shows `🟢 live search (Foursquare +
+curated)` when Foursquare returns data.
+
 ## Deploy
 
 It's static — drop the folder on any static host, no build command, publish
@@ -121,5 +155,8 @@ directory = `.`:
 
 - `index.html` — markup + layout
 - `styles.css` — theming (light/dark), components
-- `app.js` — live data fetch, filtering, gamification, challenge logic
-- `.gitignore` — keeps OS/editor junk and any future `.env` out of the repo
+- `app.js` — live data fetch (OSM + Foursquare), filtering, gamification, challenge logic
+- `netlify/functions/foursquare.js` — optional serverless Foursquare proxy (key stays server-side)
+- `netlify.toml` — Netlify config (functions dir + `/api/foursquare` redirect)
+- `.env.example` — template for the local `FOURSQUARE_API_KEY` (copy to `.env`)
+- `.gitignore` — keeps OS/editor junk, `node_modules`, and real `.env` files out of the repo

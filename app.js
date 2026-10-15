@@ -265,6 +265,37 @@ function normalizePlaces(elements) {
     .sort((a, b) => a.dist - b.dist);
 }
 
+// ---------- Foursquare live search (via our Netlify Function proxy) ----------
+// Foursquare has real coverage of Malaysian venues (incl. mall tenants) that
+// OSM lacks. It can't be called from the browser directly (no CORS + key must
+// stay secret), so we go through /api/foursquare — a Netlify Function that
+// holds FOURSQUARE_API_KEY server-side. If the key isn't configured, or the
+// function/endpoint 404s (e.g. opened as a plain static file with no `netlify
+// dev`), this returns [] and the app keeps its OSM + curated data. Never throws.
+async function fetchFoursquare() {
+  try {
+    const url = `/api/foursquare?lat=${ORIGIN.lat}&lon=${ORIGIN.lon}&radius=${SEARCH_RADIUS_M}&limit=50`;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    const res = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(timer);
+    if (!res.ok) return [];
+    const j = await res.json();
+    if (j.error) console.info("Foursquare:", j.error); // visible but non-fatal
+    const seen = new Set();
+    return (j.places || [])
+      .map((p) => ({
+        ...p,
+        // Prefer FSQ's own straight-line distance; else compute from ORIGIN.
+        dist: Number.isFinite(p.dist) ? p.dist : haversine(ORIGIN, { lat: p.lat, lon: p.lon }),
+        tags: Array.isArray(p.tags) ? p.tags.slice(0, 4) : [],
+      }))
+      .filter((p) => p.n && Number.isFinite(p.lat) && Number.isFinite(p.lon) && !seen.has(p.n.toLowerCase()) && seen.add(p.n.toLowerCase()));
+  } catch (_) {
+    return []; // network/abort/offline → silent, OSM + curated carry the app
+  }
+}
+
 async function fetchWeather() {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${ORIGIN.lat}&longitude=${ORIGIN.lon}` +
     `&current=temperature_2m,precipitation,weather_code,is_day&timezone=auto`;
@@ -387,9 +418,12 @@ function setGenre(g) {
 function render() {
   const v = visible();
   const extra = (isRaining() ? " · 🌧️ outdoor hidden" : "") + (S.chalAccepted && genre === challengeG ? " · 🎯 challenge mode" : "");
-  const src = $("#count").dataset.src === "fallback"
+  const srcState = $("#count").dataset.src;
+  const src = srcState === "fallback"
     ? ' · <span style="color:var(--muted)">📋 curated local guide (this area is sparsely mapped in OSM) <button id="retry" class="btn" style="padding:2px 8px;font-size:11px">check live</button></span>'
-    : "";
+    : srcState === "foursquare"
+    ? ' · <span style="color:var(--muted)">🟢 live search (Foursquare + curated)</span>'
+    : ""; // "live" (OSM) → no banner, same as before
   $("#count").innerHTML = `${v.length} spot${v.length !== 1 ? "s" : ""} match${extra}${src}`;
   const retry = $("#retry");
   if (retry) retry.addEventListener("click", () => { $("#count").dataset.src = "live"; loadPlaces(); });
@@ -594,15 +628,26 @@ async function boot() {
 
 async function loadPlaces() {
   const { places, source } = await fetchPlaces();
-  // The curated list is PRIMARY data for Glenmarie (OSM barely maps this area),
-  // so always merge it in — even when live OSM succeeds — deduped by name so a
-  // spot OSM already has isn't listed twice. Previously, a successful live fetch
-  // REPLACED the curated set, which hid the hand-added kopitiams (Thong Kee,
-  // Meng Kee, etc.) whenever a mirror answered.
-  const liveByName = new Set(places.map((p) => p.n.toLowerCase()));
-  const curated = curatedWithDist().filter((c) => !liveByName.has(c.n.toLowerCase()));
-  PLACES = places.concat(curated).sort((a, b) => a.dist - b.dist);
-  showSource(source);
+  // Live Foursquare search runs in parallel with the OSM result above; it has
+  // real MY venue coverage (mall tenants etc.) that OSM lacks. Merge order
+  // (deduped by lowercased name, first writer wins):
+  //   1. OSM live results        (open data, when present)
+  //   2. Foursquare live results (fills the gaps OSM misses)
+  //   3. Curated list ON TOP     (PRIMARY data for Glenmarie — the hand-verified
+  //      kopitiams must always show, even when a live source answers)
+  const fsq = await fetchFoursquare();
+  const byName = new Set();
+  const dedupe = (arr) => arr.filter((p) => {
+    const k = p.n.toLowerCase();
+    return !byName.has(k) && byName.add(k);
+  });
+  const live = dedupe(places).concat(dedupe(fsq));            // OSM, then FSQ
+  const curated = dedupe(curatedWithDist());                  // curated wins last so it's never dropped
+  PLACES = live.concat(curated).sort((a, b) => a.dist - b.dist);
+
+  // Pick the banner label from the strongest live source that actually returned data.
+  const effectiveSource = fsq.length ? "foursquare" : source;
+  showSource(effectiveSource);
   buildGenreChips();
   computeChallenge();
   renderChal();
@@ -611,11 +656,7 @@ async function loadPlaces() {
 
 function showSource(source) {
   const el = $("#count");
-  if (source === "fallback") {
-    el.dataset.src = "fallback";
-  } else {
-    el.dataset.src = "live";
-  }
+  el.dataset.src = source; // "foursquare" | "live" | "fallback"
   // The banner itself is rendered inside render() via the count line.
 }
 
